@@ -7,7 +7,9 @@ int allocator_trace(void *param, const char *fmt, va_list ap) {
 	assert(fmt);
 	va_list nap;
 	va_copy(nap, ap);
-	return vfprintf((FILE*)param, fmt, ap);
+	const int r = vfprintf((FILE*)param, fmt, ap);
+	va_end(nap);
+	return r;
 }
 
 int main(void) {

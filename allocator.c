@@ -33,6 +33,7 @@ static void arena_validate(void *arena) {
 	assert(a->buf);
 	assert(a->aligned);
 	assert(a->buf_len >= ((sizeof (*a) + ALLOCATOR_ALIGNMENT) * 2ull));
+	assert(a->nofree <= a->arena_len);
 	switch (a->type) {
 	case ALLOCATOR_TYPE_LIST:
 	case ALLOCATOR_TYPE_NO_FREE:
@@ -104,7 +105,7 @@ int allocator_format(void **arena, int type, unsigned char *buf, size_t len) {
 }
 
 int allocator_reformat(void *arena, int type) {
-	assert(arena);
+	arena_validate(arena);
 	allocator_t *a = arena;
 	void *newarena = arena;
 	const int r = allocator_format(&newarena, type, a->buf, a->buf_len);
@@ -114,7 +115,7 @@ int allocator_reformat(void *arena, int type) {
 }
 
 int allocator_is_ptr_valid(void *arena, void *ptr) {
-	assert(arena);
+	arena_validate(arena);
 	allocator_t *a = arena;
 	if (a->error < 0)
 		return a->error;
@@ -133,7 +134,7 @@ int allocator_is_ptr_valid(void *arena, void *ptr) {
 }
 
 int allocator_is_ptr_allocated(void *arena, void *ptr) {
-	assert(arena);
+	arena_validate(arena);
 	allocator_t *a = arena;
 	if (a->error < 0)
 		return a->error;
@@ -147,17 +148,22 @@ int allocator_is_ptr_allocated(void *arena, void *ptr) {
 }
 
 int allocator_get_max_allocatable(void *arena, size_t *size) {
-	assert(arena);
+	arena_validate(arena);
 	assert(size);
 	allocator_t *a = arena;
 	if (a->error < 0)
 		return a->error;
 	*size = 0;
+	switch (a->type) {
+	case ALLOCATOR_TYPE_NO_FREE: *size = a->arena_len - a->nofree; return 0;
+	case ALLOCATOR_TYPE_FAIL:  return 0;
+	case ALLOCATOR_TYPE_LIST: break;
+	}
 	return -1;
 }
 
 int allocator_get_overhead(void *arena, size_t *size) {
-	assert(arena);
+	arena_validate(arena);
 	assert(size);
 	allocator_t *a = arena;
 	if (a->error < 0)
@@ -167,7 +173,7 @@ int allocator_get_overhead(void *arena, size_t *size) {
 }
 
 int allocator_get_free(void *arena, size_t *size) {
-	assert(arena);
+	arena_validate(arena);
 	assert(size);
 	allocator_t *a = arena;
 	if (a->error < 0)
@@ -177,7 +183,7 @@ int allocator_get_free(void *arena, size_t *size) {
 }
 
 int allocator_get_total(void *arena, size_t *size) {
-	assert(arena);
+	arena_validate(arena);
 	assert(size);
 	allocator_t *a = arena;
 	if (a->error < 0)
@@ -187,7 +193,7 @@ int allocator_get_total(void *arena, size_t *size) {
 }
 
 int allocator_set_trace(void *arena, allocator_trace_fn trace, void *param) {
-	assert(arena);
+	arena_validate(arena);
 	allocator_t *a = arena;
 	if (a->error < 0)
 		return a->error;
@@ -197,11 +203,11 @@ int allocator_set_trace(void *arena, allocator_trace_fn trace, void *param) {
 }
 
 void *allocator(void *arena, void *ptr, size_t oldsz, size_t newsz) {
-	assert(arena);
+	arena_validate(arena);
 	allocator_t *a = arena;
 	if (a->error < 0)
 		return NULL;
-	if (a->type == ALLOCATOR_TYPE_FAIL)
+	if (a->type == ALLOCATOR_TYPE_FAIL) /* always fails, might want to do a probabilistic one */
 		return NULL;
 	return NULL;
 }

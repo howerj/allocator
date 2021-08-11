@@ -4,6 +4,8 @@
 * Email: howe.r.j.89@gmail.com
 * Repo: https://github.com/howerj/allocator
 
+**THIS LIBRARY IS A WORK IN PROGRESS**
+
 This is a (small) library for creating arenas to allocate within, which will
 allow you to limit the amount of memory to a library (assuming the library
 handles out of memory conditions correctly) or module within an embedded
