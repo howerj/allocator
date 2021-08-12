@@ -15,8 +15,12 @@
 #define ALLOCATOR_ALIGNMENT (16ull)
 #endif
 
-#define ALIGN_MASK (ALLOCATOR_ALIGNMENT - 1ull)
-// TODO: Build bug/assert wrapper/implies
+#define ALIGN_MASK              (ALLOCATOR_ALIGNMENT - 1ull)
+#define UNUSED(X)               ((void)(X))
+#define BUILD_BUG_ON(condition) ((void)sizeof(char[1 - 2*!!(condition)]))
+#define check(EXP)              assert(EXP)
+#define implies(P, Q)           implication(!!(P), !!(Q)) /* material implication, immaterial if NDEBUG defined */
+#define mutual(P, Q)            (implies((P), (Q)), implies((Q), (P)))
 
 typedef struct {
 	unsigned char *buf, *aligned, *arena;
@@ -27,19 +31,24 @@ typedef struct {
 	size_t nofree;
 } allocator_t;
 
+static inline void implication(const int p, const int q) {
+	UNUSED(p); UNUSED(q); /* warning suppression if NDEBUG defined */
+	check((!p) || q);
+}
+
 static void arena_validate(void *arena) {
-	assert(arena);
+	check(arena);
 	allocator_t *a = arena;
-	assert(a->buf);
-	assert(a->aligned);
-	assert(a->buf_len >= ((sizeof (*a) + ALLOCATOR_ALIGNMENT) * 2ull));
-	assert(a->nofree <= a->arena_len);
+	check(a->buf);
+	check(a->aligned);
+	check(a->buf_len >= ((sizeof (*a) + ALLOCATOR_ALIGNMENT) * 2ull));
+	check(a->nofree <= a->arena_len);
 	switch (a->type) {
 	case ALLOCATOR_TYPE_LIST:
 	case ALLOCATOR_TYPE_NO_FREE:
 	case ALLOCATOR_TYPE_FAIL:
 		break;
-	default: assert(0);
+	default: check(0);
 	}
 }
 
@@ -48,8 +57,8 @@ static uintptr_t alignup(uintptr_t u) {
 }
 
 static int alogger(void *arena, int fatal, const char *func, int line, const char *fmt, ...) {
-	assert(arena);
-	assert(fmt);
+	check(arena);
+	check(fmt);
 	allocator_t *a = arena;
 	if (a->error)
 		return -1;
@@ -62,7 +71,9 @@ static int alogger(void *arena, int fatal, const char *func, int line, const cha
 	va_start(ap, fmt);
 	const int r1 = a->trace(a->trace_param, fmt, ap);
 	va_end(ap);
-	return r1;
+	if (r1 < 0)
+		goto fail;
+	return fatal ? -1 : r1;
 fail:
 	a->error = -1;
 	return -1;
@@ -72,8 +83,8 @@ fail:
 #define adie(ARENA, FMT, ...) alogger((ARENA), 1, __func__, __LINE__, (FMT), ##__VA_ARGS__)
 
 int allocator_format(void **arena, int type, unsigned char *buf, size_t len) {
-	assert(arena);
-	assert(buf);
+	check(arena);
+	check(buf);
 	*arena = NULL;
 	memset(buf, 0, len);
 	unsigned char *aligned = (unsigned char*)alignup((uintptr_t)buf);
@@ -109,8 +120,7 @@ int allocator_reformat(void *arena, int type) {
 	allocator_t *a = arena;
 	void *newarena = arena;
 	const int r = allocator_format(&newarena, type, a->buf, a->buf_len);
-	if (r >= 0)
-		assert(newarena == arena);
+	implies(r >= 0, newarena == arena);
 	return r;
 }
 
@@ -149,7 +159,7 @@ int allocator_is_ptr_allocated(void *arena, void *ptr) {
 
 int allocator_get_max_allocatable(void *arena, size_t *size) {
 	arena_validate(arena);
-	assert(size);
+	check(size);
 	allocator_t *a = arena;
 	if (a->error < 0)
 		return a->error;
@@ -164,7 +174,7 @@ int allocator_get_max_allocatable(void *arena, size_t *size) {
 
 int allocator_get_overhead(void *arena, size_t *size) {
 	arena_validate(arena);
-	assert(size);
+	check(size);
 	allocator_t *a = arena;
 	if (a->error < 0)
 		return a->error;
@@ -174,7 +184,7 @@ int allocator_get_overhead(void *arena, size_t *size) {
 
 int allocator_get_free(void *arena, size_t *size) {
 	arena_validate(arena);
-	assert(size);
+	check(size);
 	allocator_t *a = arena;
 	if (a->error < 0)
 		return a->error;
@@ -184,7 +194,7 @@ int allocator_get_free(void *arena, size_t *size) {
 
 int allocator_get_total(void *arena, size_t *size) {
 	arena_validate(arena);
-	assert(size);
+	check(size);
 	allocator_t *a = arena;
 	if (a->error < 0)
 		return a->error;
@@ -207,8 +217,32 @@ void *allocator(void *arena, void *ptr, size_t oldsz, size_t newsz) {
 	allocator_t *a = arena;
 	if (a->error < 0)
 		return NULL;
-	if (a->type == ALLOCATOR_TYPE_FAIL) /* always fails, might want to do a probabilistic one */
-		return NULL;
+
+	switch (a->type) {
+	case ALLOCATOR_TYPE_NO_FREE: {
+		if (newsz == 0)
+			return NULL;
+		if (newsz <= oldsz)
+			return ptr;
+		if (ptr) {
+			if (oldsz == 0) /* no frees allowed */
+				return NULL;
+
+		}
+		if (oldsz == 0) { /* new allocation */
+			a->nofree = alignup(a->nofree);
+			if ((a->nofree + newsz) > a->arena_len)
+				return NULL;
+			void *r = &a->aligned[a->nofree];
+			a->nofree += newsz;
+			return r;
+		} else {
+		}
+		break;
+	}
+	case ALLOCATOR_TYPE_FAIL: return NULL;
+	case ALLOCATOR_TYPE_LIST: return NULL; // Not implemented yet
+	}
 	return NULL;
 }
 
